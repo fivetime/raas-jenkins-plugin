@@ -2,11 +2,9 @@ package io.fivetime.raas.jenkins;
 
 import hudson.Extension;
 import hudson.model.Descriptor;
-import hudson.model.Node;
 import hudson.model.TaskListener;
 import hudson.slaves.AbstractCloudComputer;
 import hudson.slaves.AbstractCloudSlave;
-import hudson.slaves.EphemeralNode;
 import hudson.slaves.JNLPLauncher;
 import hudson.model.Slave;
 import java.io.IOException;
@@ -15,10 +13,15 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * One RaaS-provided agent: a single-executor, exclusive, ephemeral node that connects to the controller
- * over WebSocket and is destroyed after one build. {@link #_terminate} tells RaaS to destroy the machine.
+ * One RaaS-provided agent: a single-executor, exclusive node that connects to the controller over
+ * WebSocket and is destroyed after one build. {@link #_terminate} tells RaaS to destroy the machine.
+ *
+ * <p>Deliberately <b>not</b> an {@code EphemeralNode}: those vanish on a controller restart without
+ * {@code _terminate} ever running, so RaaS would never hear about the node and a resumed Pipeline would
+ * wait forever for an agent that no longer exists. Persisting the node lets the WebSocket agent reconnect
+ * after the restart, the build resume, and the retention strategy release the machine as usual.
  */
-public class RaasAgent extends AbstractCloudSlave implements EphemeralNode {
+public class RaasAgent extends AbstractCloudSlave {
     private static final long serialVersionUID = 1L;
     private static final Logger LOGGER = Logger.getLogger(RaasAgent.class.getName());
 
@@ -89,11 +92,6 @@ public class RaasAgent extends AbstractCloudSlave implements EphemeralNode {
 
     public String getBuildRef() {
         return buildRef;
-    }
-
-    @Override
-    public Node asNode() {
-        return this;
     }
 
     @Override
