@@ -30,23 +30,49 @@ public class RaasRetentionStrategy extends RetentionStrategy<RaasComputer> imple
     @DataBoundConstructor
     public RaasRetentionStrategy() {}
 
+    /** How long a connected agent may sit idle without ever having run a task before it is released. */
+    static final long IDLE_UNUSED_MS = TimeUnit.MINUTES.toMillis(3);
+
     @Override
     public long check(RaasComputer c) {
         RaasAgent node = c.getNode();
         if (node == null) {
             return 1;
         }
-        if (c.isUsed() && c.isIdle()) {
-            terminate(c, "build finished");
-            return 1;
-        }
-        if (!c.isUsed() && c.isOffline() && c.getChannel() == null) {
-            long age = System.currentTimeMillis() - node.getCreatedAt();
-            if (age > TimeUnit.MINUTES.toMillis(node.getConnectTimeoutMinutes())) {
-                terminate(c, "never connected within " + node.getConnectTimeoutMinutes() + " minutes");
-            }
+        long now = System.currentTimeMillis();
+        String why = decide(c.isUsed(), c.isOnline(), c.isIdle(), c.getConnectTime(), node.getCreatedAt(),
+                TimeUnit.MINUTES.toMillis(node.getConnectTimeoutMinutes()), now);
+        if (why != null) {
+            terminate(c, why);
         }
         return 1;
+    }
+
+    /**
+     * The whole retention policy as a pure decision, so it can be tested without a clock or a Jenkins.
+     *
+     * <ul>
+     * <li>ran a task and is idle again → release: the machine is spent.</li>
+     * <li>never connected within the connect timeout → release: the tenant's Jenkins is unreachable or too old.</li>
+     * <li>connected, idle, never used for {@link #IDLE_UNUSED_MS} → release: Jenkins' provisioner routinely asks
+     *     for one machine more than the queue ends up needing (it re-plans while the first one boots); without
+     *     this rule that machine would sit there, billed, until someone noticed.</li>
+     * </ul>
+     *
+     * @return the reason to terminate, or null to keep the node
+     */
+    static String decide(boolean used, boolean online, boolean idle, long connectTime, long createdAt,
+            long connectTimeoutMs, long now) {
+        if (used) {
+            return idle ? "build finished" : null;
+        }
+        if (!online) {
+            return now - createdAt > connectTimeoutMs ? "never connected within the connect timeout" : null;
+        }
+        if (idle && connectTime > 0 && now - connectTime > IDLE_UNUSED_MS) {
+            return "connected but never used";
+        }
+        return null;
     }
 
     @Override
@@ -58,6 +84,31 @@ public class RaasRetentionStrategy extends RetentionStrategy<RaasComputer> imple
             // Nothing else may be scheduled here; the machine is spent once this task ends.
             rc.setAcceptingTasks(false);
         }
+    }
+
+    @Override
+    public void taskStarted(Executor executor, Queue.Task task) {
+        // The build reference is only reliably reachable while the task runs. For a Pipeline the executable
+        // is a placeholder whose parent executable is the WorkflowRun; for a freestyle job it is the Run itself.
+        Computer c = executor.getOwner();
+        if (c instanceof RaasComputer) {
+            RaasAgent node = ((RaasComputer) c).getNode();
+            Run<?, ?> run = runOf(executor.getCurrentExecutable());
+            if (node != null && run != null) {
+                node.recordBuild(run.getExternalizableId(), null);
+            }
+        }
+    }
+
+    /** Walks the executable's parents until a {@link Run} shows up (Pipeline placeholders → WorkflowRun). */
+    static Run<?, ?> runOf(Queue.Executable exe) {
+        for (int i = 0; exe != null && i < 8; i++) {
+            if (exe instanceof Run) {
+                return (Run<?, ?>) exe;
+            }
+            exe = exe.getParentExecutable();
+        }
+        return null;
     }
 
     @Override
@@ -78,11 +129,11 @@ public class RaasRetentionStrategy extends RetentionStrategy<RaasComputer> imple
         RaasComputer rc = (RaasComputer) c;
         RaasAgent node = rc.getNode();
         if (node != null) {
-            Queue.Executable exe = executor.getCurrentExecutable();
-            String ref = exe instanceof Run ? ((Run<?, ?>) exe).getExternalizableId() : null;
+            Run<?, ?> run = runOf(executor.getCurrentExecutable());
+            String ref = run != null ? run.getExternalizableId() : node.getBuildRef();
             String result = null;
-            if (exe instanceof Run && ((Run<?, ?>) exe).getResult() != null) {
-                result = ((Run<?, ?>) exe).getResult().toString();
+            if (run != null && run.getResult() != null) {
+                result = run.getResult().toString();
             } else if (problems != null) {
                 result = "FAILURE";
             }

@@ -79,8 +79,16 @@ public class RaasAgent extends AbstractCloudSlave implements EphemeralNode {
     }
 
     void recordBuild(String ref, String result) {
-        this.buildRef = ref;
-        this.conclusion = result;
+        if (ref != null) {
+            this.buildRef = ref;
+        }
+        if (result != null) {
+            this.conclusion = result;
+        }
+    }
+
+    public String getBuildRef() {
+        return buildRef;
     }
 
     @Override
