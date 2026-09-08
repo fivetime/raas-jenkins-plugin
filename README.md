@@ -27,6 +27,24 @@ can use it a minute later without touching Jenkins.
    **Test connection**. It lists the labels you can use. If it does not, nothing else will work either —
    fix this first.
 
+### Configuration as Code
+
+If your controller is managed by JCasC, the cloud is one block; the credential can live in your usual
+credentials source:
+
+```yaml
+jenkins:
+  clouds:
+    - raas:
+        name: raas
+        url: https://raas.tue.jp
+        credentialsId: raas-app-credential
+        connectTimeoutMinutes: 15
+```
+
+Note that JCasC owns the `clouds` list: a cloud added through the UI or a Groovy script is replaced on the
+next JCasC reload, so put it in the YAML.
+
 ## Use
 
 ```groovy
