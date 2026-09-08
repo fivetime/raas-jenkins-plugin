@@ -1,0 +1,6 @@
+<?jelly escape-by-default='true'?>
+<div>
+  Runs builds on ephemeral agents provided by a RaaS (Runner-as-a-Service) deployment on OpenStack.
+  Configure the RaaS URL and an application credential; use the labels RaaS publishes in
+  <code>agent { label '…' }</code>. One machine per build, destroyed afterwards.
+</div>

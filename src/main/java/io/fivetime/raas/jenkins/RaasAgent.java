@@ -1,0 +1,132 @@
+package io.fivetime.raas.jenkins;
+
+import hudson.Extension;
+import hudson.model.Descriptor;
+import hudson.model.Node;
+import hudson.model.TaskListener;
+import hudson.slaves.AbstractCloudComputer;
+import hudson.slaves.AbstractCloudSlave;
+import hudson.slaves.EphemeralNode;
+import hudson.slaves.JNLPLauncher;
+import hudson.model.Slave;
+import java.io.IOException;
+import java.util.Collections;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * One RaaS-provided agent: a single-executor, exclusive, ephemeral node that connects to the controller
+ * over WebSocket and is destroyed after one build. {@link #_terminate} tells RaaS to destroy the machine.
+ */
+public class RaasAgent extends AbstractCloudSlave implements EphemeralNode {
+    private static final long serialVersionUID = 1L;
+    private static final Logger LOGGER = Logger.getLogger(RaasAgent.class.getName());
+
+    private final String cloudName;
+    private final String raasLabel;
+    private final long createdAt;
+    private final int connectTimeoutMinutes;
+    /** RaaS's id for this agent; 0 until RaaS has accepted the request. */
+    private long agentId;
+    /** What ran here, reported to RaaS on termination so the tenant can see it in their history. */
+    private String buildRef;
+    private String conclusion;
+
+    public RaasAgent(String name, String raasLabel, String cloudName, int connectTimeoutMinutes)
+            throws Descriptor.FormException, IOException {
+        super(name, "/home/runner/jenkins", webSocketLauncher());
+        this.cloudName = cloudName;
+        this.raasLabel = raasLabel;
+        this.createdAt = System.currentTimeMillis();
+        this.connectTimeoutMinutes = connectTimeoutMinutes;
+        setNodeDescription("RaaS agent (" + raasLabel + ") from cloud " + cloudName);
+        setNumExecutors(1);
+        setMode(Mode.EXCLUSIVE);
+        setLabelString(raasLabel);
+        setRetentionStrategy(new RaasRetentionStrategy());
+        setNodeProperties(Collections.emptyList());
+    }
+
+    private static JNLPLauncher webSocketLauncher() {
+        JNLPLauncher l = new JNLPLauncher();
+        // The machine has no inbound path; it dials the controller on 443. Needs Jenkins >= 2.217.
+        l.setWebSocket(true);
+        return l;
+    }
+
+    public String getCloudName() {
+        return cloudName;
+    }
+
+    public String getRaasLabel() {
+        return raasLabel;
+    }
+
+    public long getAgentId() {
+        return agentId;
+    }
+
+    void setAgentId(long id) {
+        this.agentId = id;
+    }
+
+    public long getCreatedAt() {
+        return createdAt;
+    }
+
+    public int getConnectTimeoutMinutes() {
+        return connectTimeoutMinutes <= 0 ? 15 : connectTimeoutMinutes;
+    }
+
+    void recordBuild(String ref, String result) {
+        this.buildRef = ref;
+        this.conclusion = result;
+    }
+
+    @Override
+    public Node asNode() {
+        return this;
+    }
+
+    @Override
+    public AbstractCloudComputer<RaasAgent> createComputer() {
+        return new RaasComputer(this);
+    }
+
+    @Override
+    protected void _terminate(TaskListener listener) throws IOException, InterruptedException {
+        if (agentId == 0) {
+            // RaaS never accepted this node; there is nothing on their side to destroy.
+            return;
+        }
+        RaasCloud cloud = RaasCloud.byName(cloudName);
+        if (cloud == null) {
+            listener.error("RaaS cloud '" + cloudName + "' no longer exists; agent " + agentId
+                    + " will be reclaimed by RaaS's own reconciler");
+            return;
+        }
+        try {
+            cloud.client().terminate(agentId, buildRef, conclusion);
+            listener.getLogger().println("RaaS agent " + agentId + " released");
+        } catch (RaasException e) {
+            if (e.getStatus() == 404) {
+                return; // already gone on their side: idempotent
+            }
+            LOGGER.log(Level.WARNING, "RaaS agent " + agentId + ": terminate refused: " + e);
+            throw e;
+        }
+    }
+
+    @Extension
+    public static final class DescriptorImpl extends Slave.SlaveDescriptor {
+        @Override
+        public String getDisplayName() {
+            return "RaaS agent";
+        }
+
+        @Override
+        public boolean isInstantiable() {
+            return false; // only the cloud creates these
+        }
+    }
+}

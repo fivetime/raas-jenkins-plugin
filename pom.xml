@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.jenkins-ci.plugins</groupId>
+    <artifactId>plugin</artifactId>
+    <version>5.17</version>
+    <relativePath />
+  </parent>
+
+  <groupId>io.fivetime.raas</groupId>
+  <artifactId>raas-jenkins</artifactId>
+  <version>${changelist}</version>
+  <packaging>hpi</packaging>
+  <name>RaaS Cloud plugin</name>
+  <description>Runs Jenkins builds on ephemeral agents provided by a RaaS (Runner-as-a-Service) deployment on OpenStack. The tenant installs this plugin, points it at the RaaS endpoint with an application credential, and uses the labels RaaS publishes.</description>
+  <url>https://github.com/fivetime/raas-jenkins-plugin</url>
+
+  <licenses>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/license/mit/</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <scm>
+    <connection>scm:git:https://github.com/fivetime/raas-jenkins-plugin.git</connection>
+    <developerConnection>scm:git:https://github.com/fivetime/raas-jenkins-plugin.git</developerConnection>
+    <tag>${scmTag}</tag>
+    <url>https://github.com/fivetime/raas-jenkins-plugin</url>
+  </scm>
+
+  <properties>
+    <changelist>999999-SNAPSHOT</changelist>
+    <!-- Same baseline as the official openstack-cloud plugin: WebSocket agents need >= 2.217, we ask for a supported LTS. -->
+    <jenkins.baseline>2.504</jenkins.baseline>
+    <jenkins.version>${jenkins.baseline}.1</jenkins.version>
+    <gitHubRepo>fivetime/raas-jenkins-plugin</gitHubRepo>
+    <spotless.check.skip>true</spotless.check.skip>
+    <spotbugs.skip>true</spotbugs.skip>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>io.jenkins.tools.bom</groupId>
+        <artifactId>bom-${jenkins.baseline}.x</artifactId>
+        <version>4890.vfca_82c6741a_d</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.jenkins-ci.plugins</groupId>
+      <artifactId>credentials</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.jenkins-ci.plugins</groupId>
+      <artifactId>jackson2-api</artifactId>
+    </dependency>
+  </dependencies>
+
+  <repositories>
+    <repository>
+      <id>repo.jenkins-ci.org</id>
+      <url>https://repo.jenkins-ci.org/public/</url>
+    </repository>
+  </repositories>
+  <pluginRepositories>
+    <pluginRepository>
+      <id>repo.jenkins-ci.org</id>
+      <url>https://repo.jenkins-ci.org/public/</url>
+    </pluginRepository>
+  </pluginRepositories>
+</project>
