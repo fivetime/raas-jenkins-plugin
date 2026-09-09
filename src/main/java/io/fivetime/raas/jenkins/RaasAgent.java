@@ -118,8 +118,13 @@ public class RaasAgent extends AbstractCloudSlave {
             if (e.getStatus() == 404) {
                 return; // already gone on their side: idempotent
             }
-            LOGGER.log(Level.WARNING, "RaaS agent " + agentId + ": terminate refused: " + e);
-            throw e;
+            // A refusal we cannot fix from here (5xx, 429): keep asking. The node itself is removed regardless —
+            // the build is over — so the release must not depend on this one call getting through.
+            LOGGER.log(Level.WARNING, "RaaS agent " + agentId + ": terminate not acknowledged (" + e + "); queued for retry");
+            RaasPeriodicWork.get().pendingTerminate(cloudName, agentId, buildRef, conclusion);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "RaaS agent " + agentId + ": RaaS unreachable (" + e + "); release queued for retry");
+            RaasPeriodicWork.get().pendingTerminate(cloudName, agentId, buildRef, conclusion);
         }
     }
 

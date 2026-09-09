@@ -131,6 +131,16 @@ public class RaasClient {
         call("DELETE", "/v1/jenkins/agents/" + id, req, 204);
     }
 
+    /** {@code POST /v1/jenkins/heartbeat}: the agents this controller still holds. An empty list is a valid heartbeat. */
+    public void heartbeat(List<Long> agentIds) throws IOException, InterruptedException {
+        ObjectNode req = JSON.createObjectNode();
+        com.fasterxml.jackson.databind.node.ArrayNode arr = req.putArray("agents");
+        for (Long id : agentIds) {
+            arr.add(id);
+        }
+        call("POST", "/v1/jenkins/heartbeat", req, 204);
+    }
+
     // ---- plumbing ----
 
     private synchronized String token(boolean force) throws IOException, InterruptedException {

@@ -28,6 +28,9 @@ final class FakeRaas implements AutoCloseable {
     final List<String> deletes = new ArrayList<>();
     final List<JsonNode> deleteBodies = new ArrayList<>();
     final List<Long> connected = new ArrayList<>();
+    final List<List<Long>> heartbeats = new ArrayList<>();
+    /** When true, DELETE answers 503 — RaaS is "down". */
+    volatile boolean failDeletes;
     /** When set, POST /agents answers with this status and code instead of creating an agent. */
     volatile int refuseStatus;
     volatile String refuseCode;
@@ -99,7 +102,22 @@ final class FakeRaas implements AutoCloseable {
                 reply(ex, 204, "");
                 return;
             }
+            if (method.equals("POST") && path.equals("/v1/jenkins/heartbeat")) {
+                List<Long> ids = new ArrayList<>();
+                for (JsonNode n : body.path("agents")) {
+                    ids.add(n.asLong());
+                }
+                synchronized (heartbeats) {
+                    heartbeats.add(ids);
+                }
+                reply(ex, 204, "");
+                return;
+            }
             if (method.equals("DELETE") && path.matches("/v1/jenkins/agents/\\d+")) {
+                if (failDeletes) {
+                    reply(ex, 503, "{\"error\":\"down\",\"code\":\"error\"}");
+                    return;
+                }
                 synchronized (deletes) {
                     deletes.add(path.split("/")[4]);
                     deleteBodies.add(body);

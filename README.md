@@ -73,6 +73,13 @@ The plugin puts RaaS's reason in the Jenkins log instead of a timeout:
 | `unauthorized` (Test connection) | The application credential is wrong or revoked | Create a new one; update the Jenkins credential |
 | node stays offline, then disappears | Never connected within *Connect timeout* | Check the Jenkins URL is public and the controller is ≥ 2.217 |
 
+## What keeps the two sides in sync
+
+Every minute the plugin retries any release RaaS has not acknowledged (the queue survives controller
+restarts) and reports which agents this controller still holds. RaaS reclaims a machine whose node a
+running controller no longer knows after a grace period, and never reclaims anything while the controller
+is down — a restarting controller can still resume a Pipeline on its agent.
+
 ## What RaaS holds
 
 To connect the agent, RaaS receives the node's JNLP secret and hands it to the machine over an internal

@@ -123,4 +123,43 @@ public class RaasCloudTest {
         String bad = d.doTestConnection(raas.url, "missing-cred").renderHtml();
         assertTrue(bad, bad.contains("application credential"));
     }
+
+    /**
+     * RaaS is down when the build ends: the node is still removed (the build is over), the release is queued,
+     * and the next periodic run delivers it with the build reference intact.
+     */
+    @Test
+    public void lostReleaseIsRetriedUntilRaasAcknowledges() throws Exception {
+        NodeProvisioner.PlannedNode p =
+                cloud.provision(new Cloud.CloudState(Label.get("raas-ubuntu-24.04"), 0), 1).iterator().next();
+        RaasAgent agent = (RaasAgent) p.future.get(60, TimeUnit.SECONDS);
+        agent.recordBuild("job/hello/7", "SUCCESS");
+        raas.failDeletes = true;
+        agent.terminate();
+        assertNull("node is removed even though RaaS refused", j.jenkins.getNode(agent.getNodeName()));
+        assertTrue("nothing acknowledged yet", raas.deletes.isEmpty());
+        assertEquals(1, RaasPeriodicWork.get().pending().size());
+
+        RaasPeriodicWork.get().retryPending();
+        assertTrue("still down: keep it queued", raas.deletes.isEmpty());
+        assertEquals(1, RaasPeriodicWork.get().pending().size());
+
+        raas.failDeletes = false;
+        RaasPeriodicWork.get().retryPending();
+        assertEquals(java.util.List.of("17"), raas.deletes);
+        assertEquals("job/hello/7", raas.deleteBodies.get(0).path("build_ref").asText());
+        assertTrue("acknowledged: nothing pending", RaasPeriodicWork.get().pending().isEmpty());
+    }
+
+    /** The heartbeat lists exactly the RaaS agents this controller holds; with none it still beats (empty). */
+    @Test
+    public void heartbeatListsHeldAgents() throws Exception {
+        RaasPeriodicWork.get().heartbeat();
+        assertEquals(java.util.List.of(), raas.heartbeats.get(raas.heartbeats.size() - 1));
+        NodeProvisioner.PlannedNode p =
+                cloud.provision(new Cloud.CloudState(Label.get("raas-ubuntu-24.04"), 0), 1).iterator().next();
+        p.future.get(60, TimeUnit.SECONDS);
+        RaasPeriodicWork.get().heartbeat();
+        assertEquals(java.util.List.of(17L), raas.heartbeats.get(raas.heartbeats.size() - 1));
+    }
 }
