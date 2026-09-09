@@ -194,7 +194,13 @@ public class RaasCloud extends Cloud {
             }
             RaasClient.Agent a = client().provision(label, nodeName, controller, c.getJnlpMac());
             agent.setAgentId(a.id);
-            agent.save();
+            try {
+                agent.save();
+            } catch (IOException e) {
+                // RaaS already holds a machine for us; do not leave it there because our own bookkeeping failed.
+                RaasPeriodicWork.get().pendingTerminate(name, a.id, null, null);
+                throw e;
+            }
             LOGGER.log(Level.INFO, "RaaS agent {0} requested as node {1}", new Object[] {a.id, nodeName});
             return agent;
         } catch (Exception e) {
