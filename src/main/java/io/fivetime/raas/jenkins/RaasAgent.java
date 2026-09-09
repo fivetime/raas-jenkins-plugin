@@ -111,6 +111,10 @@ public class RaasAgent extends AbstractCloudSlave {
                     + " will be reclaimed by RaaS's own reconciler");
             return;
         }
+        if (buildRef != null && conclusion == null) {
+            // A Pipeline releases the node before the run has a result: report it when the run completes.
+            RaasPeriodicWork.get().awaitConclusion(cloudName, agentId, buildRef);
+        }
         try {
             cloud.client().terminate(agentId, buildRef, conclusion);
             listener.getLogger().println("RaaS agent " + agentId + " released");

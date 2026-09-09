@@ -55,10 +55,32 @@ public class RaasPeriodicWork extends PeriodicWork {
         }
     }
 
-    /** Persisted state: the pending releases. */
+    /** A build whose conclusion RaaS is still waiting for; {@code result} is set once the run completes. */
+    public static final class Awaiting {
+        public String cloudName;
+        public long agentId;
+        public String buildRef;
+        public String result;
+        public long since;
+
+        public Awaiting() {}
+
+        Awaiting(String cloudName, long agentId, String buildRef) {
+            this.cloudName = cloudName;
+            this.agentId = agentId;
+            this.buildRef = buildRef;
+            this.since = System.currentTimeMillis();
+        }
+    }
+
+    /** Persisted state: the pending releases and the builds awaiting a conclusion. */
     public static final class State {
         public List<Pending> pending = new ArrayList<>();
+        public List<Awaiting> awaiting = new ArrayList<>();
     }
+
+    /** How long we keep waiting for a build to finish before forgetting about its conclusion. */
+    static final long AWAIT_MAX_MS = TimeUnit.HOURS.toMillis(24);
 
     private final Object lock = new Object();
     private State state;
@@ -92,6 +114,53 @@ public class RaasPeriodicWork extends PeriodicWork {
         LOGGER.log(Level.WARNING, "RaaS agent {0}: release not acknowledged; will retry every minute", agentId);
     }
 
+    /** Remembers that {@code agentId} ran {@code buildRef}; the conclusion is sent when that run completes. */
+    public void awaitConclusion(String cloudName, long agentId, String buildRef) {
+        if (buildRef == null || buildRef.isEmpty()) {
+            return;
+        }
+        synchronized (lock) {
+            State s = load();
+            for (Awaiting a : s.awaiting) {
+                if (a.agentId == agentId && cloudName.equals(a.cloudName)) {
+                    return;
+                }
+            }
+            s.awaiting.add(new Awaiting(cloudName, agentId, buildRef));
+            save(s);
+        }
+    }
+
+    /** A run finished: attach its result to every agent that ran it and try to deliver right away. */
+    public void conclude(String buildRef, String result) {
+        if (buildRef == null || result == null) {
+            return;
+        }
+        boolean any = false;
+        synchronized (lock) {
+            State s = load();
+            for (Awaiting a : s.awaiting) {
+                if (buildRef.equals(a.buildRef) && a.result == null) {
+                    a.result = result;
+                    any = true;
+                }
+            }
+            if (any) {
+                save(s);
+            }
+        }
+        if (any) {
+            deliverConclusions();
+        }
+    }
+
+    /** Snapshot of builds still awaiting a conclusion (for tests). */
+    public List<Awaiting> awaiting() {
+        synchronized (lock) {
+            return new ArrayList<>(load().awaiting);
+        }
+    }
+
     /** Snapshot of what is still pending (for tests and the UI). */
     public List<Pending> pending() {
         synchronized (lock) {
@@ -102,7 +171,50 @@ public class RaasPeriodicWork extends PeriodicWork {
     @Override
     protected void doRun() {
         retryPending();
+        deliverConclusions();
         heartbeat();
+    }
+
+    /** Sends every concluded result RaaS has not acknowledged yet; forgets builds older than a day. */
+    void deliverConclusions() {
+        List<Awaiting> todo;
+        synchronized (lock) {
+            todo = new ArrayList<>(load().awaiting);
+        }
+        long now = System.currentTimeMillis();
+        for (Awaiting a : todo) {
+            boolean done = false;
+            if (now - a.since > AWAIT_MAX_MS) {
+                done = true; // the run never finished in a day; nothing more to report
+            } else if (a.result != null) {
+                RaasCloud cloud = RaasCloud.byName(a.cloudName);
+                if (cloud == null) {
+                    done = true;
+                } else {
+                    try {
+                        cloud.client().report(a.agentId, a.buildRef, a.result);
+                        done = true;
+                    } catch (RaasException e) {
+                        done = e.getStatus() == 404 || e.getStatus() == 400;
+                        if (!done) {
+                            LOGGER.log(Level.FINE, "RaaS agent " + a.agentId + ": conclusion refused: " + e);
+                        }
+                    } catch (IOException e) {
+                        LOGGER.log(Level.FINE, "RaaS agent " + a.agentId + ": conclusion not delivered: " + e);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+            }
+            if (done) {
+                synchronized (lock) {
+                    State s = load();
+                    s.awaiting.removeIf(q -> q.agentId == a.agentId && a.cloudName.equals(q.cloudName));
+                    save(s);
+                }
+            }
+        }
     }
 
     void retryPending() {
@@ -204,6 +316,9 @@ public class RaasPeriodicWork extends PeriodicWork {
         }
         if (s.pending == null) {
             s.pending = new ArrayList<>();
+        }
+        if (s.awaiting == null) {
+            s.awaiting = new ArrayList<>();
         }
         state = s;
         return s;

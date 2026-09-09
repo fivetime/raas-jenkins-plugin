@@ -131,6 +131,18 @@ public class RaasClient {
         call("DELETE", "/v1/jenkins/agents/" + id, req, 204);
     }
 
+    /** {@code PATCH /v1/jenkins/agents/{id}}: the build's conclusion, sent once the run is over (the node is long gone). */
+    public void report(long id, String buildRef, String conclusion) throws IOException, InterruptedException {
+        ObjectNode req = JSON.createObjectNode();
+        if (buildRef != null) {
+            req.put("build_ref", buildRef);
+        }
+        if (conclusion != null) {
+            req.put("conclusion", conclusion);
+        }
+        call("PATCH", "/v1/jenkins/agents/" + id, req, 204);
+    }
+
     /** {@code POST /v1/jenkins/heartbeat}: the agents this controller still holds. An empty list is a valid heartbeat. */
     public void heartbeat(List<Long> agentIds) throws IOException, InterruptedException {
         ObjectNode req = JSON.createObjectNode();

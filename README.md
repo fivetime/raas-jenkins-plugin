@@ -80,6 +80,12 @@ restarts) and reports which agents this controller still holds. RaaS reclaims a 
 running controller no longer knows after a grace period, and never reclaims anything while the controller
 is down — a restarting controller can still resume a Pipeline on its agent.
 
+A Pipeline releases its node when the `agent` block ends, before the run has a result, so the release
+cannot carry the build's conclusion. The plugin remembers which agent ran which build and reports the
+conclusion (`SUCCESS`, `FAILURE`, `ABORTED`, ...) when the run completes; it shows up in RaaS's job list
+a moment after the build ends. Freestyle builds finish on the node, so their conclusion travels with the
+release itself.
+
 ## What RaaS holds
 
 To connect the agent, RaaS receives the node's JNLP secret and hands it to the machine over an internal

@@ -162,4 +162,27 @@ public class RaasCloudTest {
         RaasPeriodicWork.get().heartbeat();
         assertEquals(java.util.List.of(17L), raas.heartbeats.get(raas.heartbeats.size() - 1));
     }
+
+    /**
+     * A Pipeline releases its node before it has a result. The release goes out without a conclusion; when
+     * the run completes the conclusion is sent for that agent, and only once.
+     */
+    @Test
+    public void conclusionIsReportedWhenTheRunCompletes() throws Exception {
+        NodeProvisioner.PlannedNode p =
+                cloud.provision(new Cloud.CloudState(Label.get("raas-ubuntu-24.04"), 0), 1).iterator().next();
+        RaasAgent agent = (RaasAgent) p.future.get(60, TimeUnit.SECONDS);
+        agent.recordBuild("job/pipe/3", null);
+        agent.terminate();
+        assertEquals("", raas.deleteBodies.get(0).path("conclusion").asText(""));
+        assertEquals(1, RaasPeriodicWork.get().awaiting().size());
+
+        RaasPeriodicWork.get().conclude("job/other/1", "FAILURE"); // not ours
+        assertTrue(raas.patches.isEmpty());
+        RaasPeriodicWork.get().conclude("job/pipe/3", "SUCCESS");
+        assertEquals(java.util.List.of("17:job/pipe/3:SUCCESS"), raas.patches);
+        assertTrue("delivered: nothing awaiting", RaasPeriodicWork.get().awaiting().isEmpty());
+        RaasPeriodicWork.get().deliverConclusions();
+        assertEquals("not sent twice", 1, raas.patches.size());
+    }
 }
