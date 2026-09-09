@@ -93,11 +93,24 @@ public class RaasRetentionStrategy extends RetentionStrategy<RaasComputer> imple
         Computer c = executor.getOwner();
         if (c instanceof RaasComputer) {
             RaasAgent node = ((RaasComputer) c).getNode();
-            Run<?, ?> run = runOf(executor.getCurrentExecutable());
+            Run<?, ?> run = runFor(executor, task);
             if (node != null && run != null) {
                 node.recordBuild(run.getExternalizableId(), null);
             }
         }
+    }
+
+    /**
+     * The build behind an executor's task, tried two ways: the executable currently on the executor (set for
+     * freestyle runs, sometimes not yet for a Pipeline placeholder at taskStarted), then the task's owner
+     * executable (a Pipeline placeholder task always knows its WorkflowRun).
+     */
+    static Run<?, ?> runFor(Executor executor, Queue.Task task) {
+        Run<?, ?> run = runOf(executor.getCurrentExecutable());
+        if (run == null && task != null) {
+            run = runOf(task.getOwnerExecutable());
+        }
+        return run;
     }
 
     /** Walks the executable's parents until a {@link Run} shows up (Pipeline placeholders → WorkflowRun). */
@@ -113,15 +126,15 @@ public class RaasRetentionStrategy extends RetentionStrategy<RaasComputer> imple
 
     @Override
     public void taskCompleted(Executor executor, Queue.Task task, long durationMS) {
-        done(executor, null);
+        done(executor, task, null);
     }
 
     @Override
     public void taskCompletedWithProblems(Executor executor, Queue.Task task, long durationMS, Throwable problems) {
-        done(executor, problems);
+        done(executor, task, problems);
     }
 
-    private void done(Executor executor, Throwable problems) {
+    private void done(Executor executor, Queue.Task task, Throwable problems) {
         Computer c = executor.getOwner();
         if (!(c instanceof RaasComputer)) {
             return;
@@ -129,7 +142,7 @@ public class RaasRetentionStrategy extends RetentionStrategy<RaasComputer> imple
         RaasComputer rc = (RaasComputer) c;
         RaasAgent node = rc.getNode();
         if (node != null) {
-            Run<?, ?> run = runOf(executor.getCurrentExecutable());
+            Run<?, ?> run = runFor(executor, task);
             String ref = run != null ? run.getExternalizableId() : node.getBuildRef();
             String result = null;
             if (run != null && run.getResult() != null) {
